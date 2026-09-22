@@ -7,7 +7,7 @@
 - FastAPI backend
 - PostgreSQL + pgvector
 - MinIO AIStor
-- Docker Compose
+- Connection to existing PostgreSQL and MinIO containers
 - Environment configuration
 - Alembic migrations
 - Base API structure
@@ -52,7 +52,7 @@
 - Optional live FX display
 
 ### Initial Products
-- mCube
+- mcube
 - LVA
 
 ### Temporary Development Defaults

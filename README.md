@@ -7,9 +7,9 @@ Phase 0 establishes the local development foundation for the Partner Portal:
 - PostgreSQL with pgvector
 - Private MinIO object storage
 - JWT authentication, roles, permissions, audit events, structured logs, and request IDs
-- Idempotent master-data seeds and Docker Compose
+- Idempotent master-data seeds and integration with existing PostgreSQL and MinIO services
 
-Phase 1A adds partner access and management:
+Phase 1 adds partner access and management:
 
 - Public partner self-registration with pending approval
 - TCG-created active partners and primary administrators
@@ -18,7 +18,7 @@ Phase 1A adds partner access and management:
 - Partner profiles and partner-user administration
 - Backend-enforced TCG/partner role checks and partner data isolation
 
-Phase 1B adds product and pricing management:
+Product and pricing management includes:
 
 - Extensible product and SKU master data
 - Effective-dated USD list prices
@@ -27,38 +27,61 @@ Phase 1B adds product and pricing management:
 - Deterministic partner price resolution with an admin-only calculation breakdown
 - Restricted partner pricing that never exposes another partner's terms
 
+The remaining Phase 1 workflows add private documents, customers and protected deals, pipeline
+history, quote revisions and price snapshots, MAF review/issuance, and orders through activation
+with a durable `ORDER_CONFIRMED` event. Migration, seed, verification, and end-to-end smoke-test
+instructions are consolidated in [Phase 1 Implementation and Operations Guide](docs/Phase1-Implementation.md).
+
 ## Prerequisites
 
 - Python 3.12 or newer
 - Node.js 22 or newer
-- Docker Desktop (only needed when PostgreSQL and MinIO are not already running)
+- Running PostgreSQL and MinIO containers, reachable on the ports configured in `.env`
+- The PostgreSQL database named by `DATABASE_URL` already exists
+- The MinIO bucket named by `MINIO_BUCKET` already exists and is private
 
 ## Environment
 
-Copy `.env.example` to `.env`, then adjust the database credentials, MinIO credentials, and
-`JWT_SECRET_KEY` for your local services. `MINIO_ENDPOINT` is an SDK endpoint such as
-`localhost:9000`; it must not include `http://`.
-
-The checked-in defaults expect:
-
-| Service | Address | Development credentials |
-| --- | --- | --- |
-| PostgreSQL | `localhost:5432` | `partner_portal` / `partner_portal` |
-| MinIO API | `localhost:9000` | `minioadmin` / `minioadmin` |
-| MinIO console (Compose) | `http://localhost:9001` | same as above |
-
-Never reuse these development credentials outside local development.
+Copy `.env.example` to `.env` only when `.env` does not already exist. Configure the PostgreSQL
+URL, MinIO endpoint and bucket, JWT secret, CORS origins, and seed administrator for your local
+services. `MINIO_ENDPOINT` is the MinIO S3 API endpoint, such as `localhost:9000`; it must not
+include `http://` or a path. Do not commit `.env`.
 
 ## Use the existing PostgreSQL and MinIO services
 
-From PowerShell:
+From the repository root, first confirm that both containers are running and exposing the expected
+ports:
 
 ```powershell
-Copy-Item .env.example .env
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Ports}}\t{{.Status}}"
+```
+
+Confirm that the output contains the PostgreSQL and MinIO containers and that their status is
+healthy/running. Then prepare the local Python environment:
+
+```powershell
+Set-Location C:\Users\nishi\Desktop\sales
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+if (-not (Test-Path .venv)) { python -m venv .venv }
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+& .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".\backend[dev]"
-Set-Location backend
+```
+
+Verify the resources configured in `.env` before applying changes:
+
+```powershell
+# A successful response confirms that the configured PostgreSQL database exists and is reachable.
+alembic current
+
+# True confirms that the configured MinIO bucket exists.
+python -c "from app.core.config import settings; from app.storage.client import get_minio_client; print(get_minio_client().bucket_exists(settings.MINIO_BUCKET))"
+```
+
+If either check fails, correct `.env` or create the missing database/private bucket before
+continuing. Apply the schema and idempotent application setup from the repository root:
+
+```powershell
 alembic upgrade head
 python -m app.db.seed
 python -m app.storage.bootstrap
@@ -75,47 +98,28 @@ npm run dev
 
 Open `http://localhost:5173`. API documentation is at `http://localhost:8000/docs`.
 
-## Start with Docker Compose
-
-If ports 5432 and 9000 are free, infrastructure only can be started with:
-
-```powershell
-docker compose up -d postgres minio minio-init
-```
-
-To build and run the complete stack:
-
-```powershell
-docker compose --profile app up --build
-```
-
-The full stack exposes the frontend on port 5173 and the API on port 8000. Compose maps the
-MinIO S3 API to port 9000 and its administrative console to port 9001.
-
 ## Verification
 
 ```powershell
 Invoke-RestMethod http://localhost:8000/api/v1/health/live
 Invoke-RestMethod http://localhost:8000/api/v1/health/ready
 
-Set-Location backend
-ruff check .
-pytest
+python -m ruff check backend\app backend\tests backend\alembic
+python -m mypy --config-file backend\pyproject.toml backend\app
+python -m pytest -q backend
 
-Set-Location ..\frontend
+Set-Location frontend
 npm run lint
 npm run build
 ```
 
-The seed command is safe to rerun. It creates the six agreed roles, their initial permissions,
-and a local administrator from `SEED_ADMIN_*`. The default local login is
-`admin@tcgdigital.com` / `ChangeMe123!`; change it in `.env` before first use.
+The seed command is safe to rerun. It creates the agreed roles, their initial permissions, and a
+local administrator from the `SEED_ADMIN_*` values configured in `.env`.
 
 After pulling a new phase, apply its migration and master data before restarting the API:
 
 ```powershell
-Set-Location backend
-python -m alembic upgrade head
+alembic upgrade head
 python -m app.db.seed
 ```
 
@@ -127,11 +131,10 @@ python -m app.db.seed
 - Clients may send `X-Request-ID`; otherwise the API creates one and returns it.
 - Protected routes use a bearer access token from `POST /api/v1/auth/token`.
 
-Phase 1A routes are documented interactively at `http://localhost:8000/docs`. The public
+All Phase 1 routes are documented interactively at `http://localhost:8000/docs`. The public
 registration entry point is `http://localhost:5173/register`; authenticated users are routed to
 their role-aware workspace after login.
 
-The Phase 1B seed creates mCube and LVA with the suggested development SKUs and configurable
+The Phase 1B seed creates mcube and LVA with the suggested development SKUs and configurable
 placeholder commercial rules. It deliberately does not invent list prices; TCG Admin sets those
 from **Products & SKUs** before resolved partner pricing appears.
-

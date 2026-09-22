@@ -74,7 +74,7 @@ Temporary assumptions must be configurable.
 
 ## 9. Product Rules
 
-- **R-PRODUCT-001:** Initial products are mCube and LVA.
+- **R-PRODUCT-001:** Initial products are mcube and LVA.
 - **R-PRODUCT-002:** Products must not be hardcoded as columns in partner/deal tables.
 - **R-PRODUCT-003:** System must support future SKU expansion.
 

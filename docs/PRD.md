@@ -2,11 +2,15 @@
 
 ## 1. Product Summary
 
-TCG Digital supplies products including **mCube** and **LVA**. The Partner Portal is a web application used by TCG Digital and approved partner companies to manage partner onboarding, pricing access, content, deal registration, quoting, MAF requests, and order tracking.
+TCG Digital supplies products including **mcube** and **LVA**. The Partner Portal is a web application used by TCG Digital and approved partner companies to manage partner onboarding, pricing access, content, deal registration, quoting, MAF requests, and order tracking.
 
 The product replaces fragmented offline work such as email, spreadsheets, manual approval chains, ad-hoc document sharing, and untracked deal claims with a controlled, auditable portal.
 
 ## 2. Phase 1 Scope
+
+**Delivery status (23 September 2026): Implementation baseline complete.** Phase 0 and the core
+Phase 1A through Phase 1H workflows are present in the application. Environment rollout,
+stakeholder configuration, acceptance testing, and the refinements listed in Section 24 remain.
 
 Phase 1 includes:
 
@@ -32,7 +36,7 @@ Phase 1 includes:
    - Special discount handling
 
 3. **Content Repository**
-   - mCube / LVA documentation
+   - mcube / LVA documentation
    - Sales enablement kits
    - Product documentation
    - Implementation guides
@@ -271,8 +275,8 @@ Conflict key:
 > Same customer + same product + active protected deal = conflict
 
 Examples:
-- Acme Pharma + mCube by Partner A → approved/protected
-- Acme Pharma + mCube by Partner B → blocked/conflict
+- Acme Pharma + mcube by Partner A → approved/protected
+- Acme Pharma + mcube by Partner B → blocked/conflict
 - Acme Pharma + LVA by Partner B → allowed
 
 Customer matching should use a Customer Master and `customer_id`, not only text matching.
@@ -280,14 +284,18 @@ Customer matching should use a Customer Master and `customer_id`, not only text 
 ## 13. Deal Protection
 
 - Protection starts when Admin approves the deal.
-- Protection remains active until the deal closes.
-- Deal closes when it becomes `WON` or `LOST`.
+- Phase 1 protection expires 90 days after approval.
+- A `WON` or `LOST` deal is terminal and no longer blocks another partner through the active
+  conflict rule.
+- Approval and submission serialize conflict checks for the same customer/product pair to avoid
+  concurrent duplicate protection.
 
 Store:
-- `protection_started_at`
-- `protection_ended_at`
+- `approved_at` as the protection start
+- `protection_expires_at` as the protection end
 
-Time-based extension is not required unless a future expiry rule is introduced.
+Manual extension is not part of Phase 1. A future policy may make the 90-day duration
+configurable.
 
 ## 14. Pipeline Stages
 
@@ -370,6 +378,18 @@ Quote should capture:
 
 Accepted quote values must be snapshotted and preserved historically.
 
+### 17.1 Implemented Quote Rules
+
+- A quote can be created only from an approved deal.
+- SKU unit prices are taken from the effective partner pricing resolver when the line is added.
+- Each line stores the pricing date, resolved unit price, calculation breakdown, commercial model,
+  and commission metadata used at that time.
+- Only draft quotes can be edited.
+- TCG finalizes a quote. Finalization creates an immutable numbered revision snapshot.
+- TCG may reopen a final quote as a new draft revision; the prior snapshot remains unchanged.
+- The partner accepts the final quote.
+- An order can be created only from an accepted quote.
+
 ## 18. MAF
 
 MAF = Manufacturer Authorization Form.
@@ -414,6 +434,15 @@ Recommended eligibility:
 - Deal should be approved before MAF is issued.
 
 MAF does not itself create a deal, quote, or order.
+
+Implemented controls:
+- A MAF request can be created only against an approved deal.
+- TCG controls review, return, rejection, approval, issuance, and expiry transitions.
+- Return and rejection require a reason.
+- An issued document must be uploaded before the request can move to `ISSUED`.
+- Issuance records an expiry 90 days from the issue action in Phase 1.
+- Supporting and issued documents are private and available only through authorized, short-lived
+  downloads.
 
 ## 19. Order
 
@@ -488,6 +517,9 @@ On `CONFIRMED`, emit domain event:
 
 Future phases may use this event to create an implementation project automatically.
 
+The Phase 1 implementation persists this event in the `domain_events` outbox-style table in the
+same database transaction as the status change. External event publication is deferred.
+
 ## 20. Content Repository
 
 Recommended categories:
@@ -509,6 +541,15 @@ Recommended visibility scopes:
 - `SPECIFIC_PARTNER`
 - `TCG_INTERNAL`
 
+Implemented repository controls:
+- Files remain in a private MinIO bucket; direct public object access is not used.
+- The API authorizes metadata and downloads using TCG access or the user's partner, type, and tier.
+- Downloads use presigned URLs that expire after ten minutes.
+- Each version records file name, MIME type, byte size, SHA-256 checksum, uploader, version number,
+  and change note.
+- Uploads are limited to 25 MB in Phase 1.
+- Search supports title/description, category, and product filters.
+
 ## 21. Phase 1 Success Criteria
 
 Phase 1 is successful when:
@@ -526,13 +567,71 @@ Phase 1 is successful when:
 - Accepted order can be submitted, reviewed, corrected, confirmed, provisioned, and activated.
 - Important actions are auditable.
 
+### 21.1 Implementation Acceptance Status
+
+The criteria above are covered by backend workflows and role-aware workspace screens, subject to
+the acceptance refinements in Section 24. The implementation provides:
+
+- Navigation for **Documents**, **Deals & pipeline**, and **Quote to order**.
+- Backend-enforced partner isolation; frontend visibility is not treated as authorization.
+- Private attachments for deals, MAF requests, and orders.
+- Audit records for high-value partner, catalog, pricing, deal, document, quote, MAF, and order
+  actions.
+- Versioned schema migrations through `20260923_0004` and idempotent seed records.
+- Automated workflow, authentication, access, pricing, and API tests.
+
+Production acceptance still requires the migration and seed to be applied to the target
+environment and the smoke-test journey to be completed with stakeholder-approved catalog and
+commercial data.
+
 ## 22. Remaining Configuration Items
 
 Not blockers for development:
-- Final mCube/LVA SKU catalog
+- Final mcube/LVA SKU catalog
 - Actual SKU prices
 - Final Reseller formula
 - Final SI formula
 - Final Silver/Gold/Platinum pricing adjustments
 - Final MAF document template/signatory/validity rules
 - Final quote approval thresholds
+- Whether deal-protection and MAF-validity durations remain 90 days or become policy-driven
+- Final file-size and retention policy
+
+## 23. As-Built Technical Baseline
+
+- Frontend: React, TypeScript, Vite, React Router, and TanStack Query
+- API: FastAPI with versioned routes under `/api/v1`
+- Persistence: PostgreSQL with SQLAlchemy async sessions and Alembic
+- Object storage: private MinIO bucket with protected presigned downloads
+- Authentication: JWT bearer tokens
+- Authorization: roles, permissions, and mandatory partner ownership checks in the API
+- Auditability: structured audit rows carrying actor, role, entity, values, timestamp, and request ID
+- Official currency: USD
+- Durable order integration boundary: persisted `ORDER_CONFIRMED` domain event
+
+Phase 1 database revisions:
+
+1. `20260922_0001` — foundation, identity, audit, seeds, and pgvector
+2. `20260923_0002` — partner access and management
+3. `20260923_0003` — product and pricing
+4. `20260923_0004` — content, customers, deals, pipeline, quotes, MAF, and orders
+
+## 24. Known Acceptance Refinements
+
+These items are recorded explicitly so the implemented baseline is not mistaken for final
+stakeholder acceptance:
+
+- Rejected deals can be resubmitted, but editing deal fields before resubmission still needs a
+  dedicated update endpoint and UI.
+- The Customer Master currently supports capture and authorized listing; merge/deduplication and
+  administrative editing are not yet exposed.
+- Full document visibility scopes and document version upload exist in the API. The current
+  publisher screen exposes the common All Partners and TCG Internal choices; type, tier, specific
+  partner, and version-management controls need UI completion.
+- Deal, MAF, and order attachments have protected API workflows. Rich attachment listing and
+  download controls remain limited in the current UI.
+- Expiry dates are stored, but scheduled automatic MAF/quote expiry is not implemented.
+- Quote approval thresholds remain unconfigured and unenforced until stakeholders provide the
+  rules.
+- `ORDER_CONFIRMED` is durably persisted but is not yet published to an external broker or
+  consumed by a project module.

@@ -232,15 +232,15 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
 async def seed_product_pricing(session: AsyncSession) -> None:
     await seed_partner_master_data(session)
     product_definitions = {
-        "MCUBE": ("mCube", "TCG Digital mCube product family"),
+        "MCUBE": ("mcube", "TCG Digital mcube product family"),
         "LVA": ("LVA", "TCG Digital LVA product family"),
     }
     sku_definitions = {
         "MCUBE": (
-            ("MCUBE-LICENSE", "mCube License", SkuCategory.LICENSE, "license"),
+            ("MCUBE-LICENSE", "mcube License", SkuCategory.LICENSE, "license"),
             (
                 "MCUBE-IMPLEMENTATION",
-                "mCube Implementation",
+                "mcube Implementation",
                 SkuCategory.IMPLEMENTATION,
                 "project",
             ),
@@ -327,11 +327,29 @@ async def seed_product_pricing(session: AsyncSession) -> None:
             )
 
 
+async def seed_mcube_display_name(session: AsyncSession) -> None:
+    product = await session.scalar(
+        select(Product).where(Product.code == "MCUBE").options(selectinload(Product.skus))
+    )
+    if product is None:
+        return
+    product.name = "mcube"
+    product.description = "TCG Digital mcube product family"
+    sku_names = {
+        "MCUBE-LICENSE": "mcube License",
+        "MCUBE-IMPLEMENTATION": "mcube Implementation",
+    }
+    for sku in product.skus:
+        if sku.code in sku_names:
+            sku.name = sku_names[sku.code]
+
+
 SEEDS: tuple[tuple[str, SeedFunction], ...] = (
     ("foundation-identity-v1", seed_identity),
     ("phase-1a-partner-master-data-v1", seed_partner_master_data),
     ("phase-1b-product-pricing-v1", seed_product_pricing),
     ("phase-1-remaining-permissions-v1", seed_partner_master_data),
+    ("phase-1-mcube-display-name-v1", seed_mcube_display_name),
 )
 
 

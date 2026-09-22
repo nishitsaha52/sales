@@ -13,7 +13,7 @@ Phase 1 is designed for local development first.
 - **Database:** PostgreSQL
 - **Vector extension:** pgvector
 - **Object storage:** MinIO AIStor
-- **Local infrastructure:** Docker / Docker Compose
+- **Local infrastructure:** existing PostgreSQL and MinIO containers managed outside this repository
 - **Development environment:** VS Code
 
 Deployment architecture is intentionally out of scope for now.
@@ -374,13 +374,15 @@ Future uses:
 - RAG
 - similar opportunity search
 
-## 22. Local Docker Setup
+## 22. Local Service Setup
 
-Recommended services:
-- postgres
-- minio
+Required services:
+- A running PostgreSQL container with the configured database already created
+- A running MinIO container with the configured private bucket already created
 
-Frontend/backend may run directly from VS Code. Docker Compose can optionally run all services.
+The repository does not contain Dockerfiles or Docker Compose configuration. Confirm the
+containers and their port mappings with the local container runtime, then run the frontend and
+backend directly from the repository workspace.
 
 ## 23. Security Baseline
 
