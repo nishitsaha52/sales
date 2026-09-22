@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from sqlalchemy import Boolean, Column, ForeignKey, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -9,6 +10,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.audit import AuditLog
+    from app.models.partner import Partner
 
 
 user_roles = Table(
@@ -34,11 +36,17 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    partner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("partners.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     roles: Mapped[list[Role]] = relationship(
         secondary=user_roles, back_populates="users", lazy="selectin"
     )
     audit_events: Mapped[list[AuditLog]] = relationship(back_populates="actor")
+    partner: Mapped[Partner | None] = relationship(
+        back_populates="users", foreign_keys=[partner_id]
+    )
 
 
 class Role(UUIDPrimaryKeyMixin, TimestampMixin, Base):

@@ -17,5 +17,6 @@ class UserRead(BaseModel):
     full_name: str
     is_active: bool
     is_superuser: bool
+    partner_id: UUID | None
     roles: list[str]
     permissions: list[str]

@@ -1,0 +1,98 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type FormEvent } from "react";
+import { Link, useParams } from "react-router-dom";
+
+import {
+  approvePartner,
+  changePartnerStatus,
+  getPartner,
+  getRegistrationOptions,
+  rejectPartner,
+  updatePartner,
+  type PartnerStatus,
+} from "../api/client";
+import { useAuth } from "../features/auth/AuthContext";
+
+export function PartnerDetailPage() {
+  const { partnerId = "" } = useParams();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const partner = useQuery({ queryKey: ["partner", partnerId], queryFn: () => getPartner(partnerId), enabled: Boolean(partnerId) });
+  const options = useQuery({ queryKey: ["registration-options"], queryFn: getRegistrationOptions });
+  const isAdmin = user?.roles.includes("TCG_ADMIN") || user?.is_superuser;
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ["partner", partnerId] });
+  const approve = useMutation({ mutationFn: (tier: string) => approvePartner(partnerId, tier), onSuccess: refresh });
+  const reject = useMutation({ mutationFn: (reason: string) => rejectPartner(partnerId, reason), onSuccess: refresh });
+  const statusMutation = useMutation({ mutationFn: (value: PartnerStatus) => changePartnerStatus(partnerId, value), onSuccess: refresh });
+  const update = useMutation({ mutationFn: (body: Record<string, unknown>) => updatePartner(partnerId, body), onSuccess: refresh });
+
+  if (partner.isLoading) return <div className="page-loader">Loading partner…</div>;
+  if (!partner.data) return <div className="workspace-page"><div className="form-alert form-alert--error">Partner could not be loaded.</div></div>;
+  const value = partner.data;
+  const canEdit = Boolean(isAdmin || (user?.partner_id === partnerId && user.roles.includes("PARTNER_ADMIN")));
+
+  function approveRegistration() {
+    const defaultTier = options.data?.partner_tiers[0]?.code ?? "SILVER";
+    const tier = window.prompt("Tier code (SILVER, GOLD, or PLATINUM)", defaultTier);
+    if (tier) approve.mutate(tier.toUpperCase());
+  }
+
+  function rejectRegistration() {
+    const reason = window.prompt("Rejection reason");
+    if (reason) reject.mutate(reason);
+  }
+
+  function updateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    update.mutate({
+      company_name: form.get("company_name"), legal_name: form.get("legal_name") || null,
+      company_email: form.get("company_email"), website: form.get("website") || null,
+      phone: form.get("phone") || null, address: form.get("address") || null,
+      primary_contact_name: form.get("primary_contact_name"),
+      primary_contact_email: form.get("primary_contact_email"),
+      primary_contact_phone: form.get("primary_contact_phone") || null,
+      country_codes: form.getAll("country_codes"),
+      ...(isAdmin ? { partner_type_code: form.get("partner_type_code"), tier_code: form.get("tier_code") } : {}),
+    });
+  }
+
+  return (
+    <div className="workspace-page">
+      <header className="page-heading page-heading--row">
+        <div><Link className="back-link" to="/partners">← Partners</Link><span className="eyebrow">{value.code ?? "Pending registration"}</span><h1>{value.company_name}</h1><p>{value.partner_type.name} · {value.countries.map((country) => country.name).join(", ")}</p></div>
+        <span className={`status-pill status-pill--${value.status.toLowerCase()}`}>{value.status.replaceAll("_", " ")}</span>
+      </header>
+
+      {value.rejection_reason && <div className="form-alert form-alert--error"><strong>Rejection reason:</strong> {value.rejection_reason}</div>}
+      {isAdmin && <section className="action-bar">
+        {value.status === "PENDING_APPROVAL" && <><button type="button" onClick={approveRegistration}>Approve</button><button className="button-danger" type="button" onClick={rejectRegistration}>Reject</button></>}
+        {value.status === "ACTIVE" && <button className="button-secondary" type="button" onClick={() => statusMutation.mutate("SUSPENDED")}>Suspend access</button>}
+        {(value.status === "SUSPENDED" || value.status === "INACTIVE") && <button type="button" onClick={() => statusMutation.mutate("ACTIVE")}>Reactivate</button>}
+      </section>}
+
+      <div className="detail-grid">
+        <section className="content-card detail-card"><span className="status-kicker">Company</span><h2>Profile</h2><dl>
+          <div><dt>Legal name</dt><dd>{value.legal_name ?? "—"}</dd></div><div><dt>Company email</dt><dd>{value.company_email}</dd></div>
+          <div><dt>Website</dt><dd>{value.website ? <a href={value.website}>{value.website}</a> : "—"}</dd></div><div><dt>Phone</dt><dd>{value.phone ?? "—"}</dd></div>
+          <div className="field-wide"><dt>Address</dt><dd>{value.address ?? "—"}</dd></div>
+        </dl></section>
+        <section className="content-card detail-card"><span className="status-kicker">Program</span><h2>Classification</h2><dl>
+          <div><dt>Partner type</dt><dd>{value.partner_type.name}</dd></div><div><dt>Tier</dt><dd>{value.tier?.name ?? "Not assigned"}</dd></div>
+          <div className="field-wide"><dt>Countries</dt><dd>{value.countries.map((country) => country.name).join(", ")}</dd></div>
+        </dl></section>
+        <section className="content-card detail-card"><span className="status-kicker">Primary contact</span><h2>{value.primary_contact_name}</h2><dl>
+          <div><dt>Email</dt><dd>{value.primary_contact_email}</dd></div><div><dt>Phone</dt><dd>{value.primary_contact_phone ?? "—"}</dd></div>
+        </dl><Link className="text-link" to={`/partners/${value.id}/users`}>Manage partner users →</Link></section>
+      </div>
+      {canEdit && <details className="content-card edit-panel"><summary>Edit partner profile</summary><form className="partner-form" onSubmit={updateProfile}><div className="form-grid">
+        <label>Company name<input name="company_name" defaultValue={value.company_name} required /></label><label>Legal name<input name="legal_name" defaultValue={value.legal_name ?? ""} /></label>
+        <label>Company email<input name="company_email" type="email" defaultValue={value.company_email} required /></label><label>Website<input name="website" type="url" defaultValue={value.website ?? ""} /></label>
+        <label>Phone<input name="phone" defaultValue={value.phone ?? ""} /></label><label>Countries<select name="country_codes" multiple size={5} defaultValue={value.countries.map((country) => country.code)}>{options.data?.countries.map((country) => <option value={country.code} key={country.id}>{country.name}</option>)}</select></label>
+        {isAdmin && <><label>Partner type<select name="partner_type_code" defaultValue={value.partner_type.code}>{options.data?.partner_types.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}</select></label><label>Tier<select name="tier_code" defaultValue={value.tier?.code ?? "SILVER"}>{options.data?.partner_tiers.map((item) => <option value={item.code} key={item.id}>{item.name}</option>)}</select></label></>}
+        <label>Primary contact<input name="primary_contact_name" defaultValue={value.primary_contact_name} required /></label><label>Contact email<input name="primary_contact_email" type="email" defaultValue={value.primary_contact_email} required /></label>
+        <label>Contact phone<input name="primary_contact_phone" defaultValue={value.primary_contact_phone ?? ""} /></label><label className="field-wide">Address<textarea name="address" rows={3} defaultValue={value.address ?? ""} /></label>
+      </div><div className="form-actions"><button type="submit" disabled={update.isPending}>{update.isPending ? "Saving…" : "Save profile"}</button></div></form></details>}
+    </div>
+  );
+}

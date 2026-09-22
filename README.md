@@ -9,6 +9,15 @@ Phase 0 establishes the local development foundation for the Partner Portal:
 - JWT authentication, roles, permissions, audit events, structured logs, and request IDs
 - Idempotent master-data seeds and Docker Compose
 
+Phase 1A adds partner access and management:
+
+- Public partner self-registration with pending approval
+- TCG-created active partners and primary administrators
+- Partner type, tier, and country master data
+- Approval, rejection, suspension, reactivation, and rejection reasons
+- Partner profiles and partner-user administration
+- Backend-enforced TCG/partner role checks and partner data isolation
+
 ## Prerequisites
 
 - Python 3.12 or newer
@@ -93,6 +102,14 @@ The seed command is safe to rerun. It creates the six agreed roles, their initia
 and a local administrator from `SEED_ADMIN_*`. The default local login is
 `admin@tcgdigital.com` / `ChangeMe123!`; change it in `.env` before first use.
 
+After pulling a new phase, apply its migration and master data before restarting the API:
+
+```powershell
+Set-Location backend
+python -m alembic upgrade head
+python -m app.db.seed
+```
+
 ## API conventions
 
 - All public API routes start with `/api/v1`.
@@ -100,4 +117,8 @@ and a local administrator from `SEED_ADMIN_*`. The default local login is
 - Errors use `{ "error": { "code", "message", "details", "request_id" } }`.
 - Clients may send `X-Request-ID`; otherwise the API creates one and returns it.
 - Protected routes use a bearer access token from `POST /api/v1/auth/token`.
+
+Phase 1A routes are documented interactively at `http://localhost:8000/docs`. The public
+registration entry point is `http://localhost:5173/register`; authenticated users are routed to
+their role-aware workspace after login.
 

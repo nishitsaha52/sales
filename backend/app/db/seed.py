@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.security import hash_password
 from app.db.session import SessionLocal, close_db
 from app.models.identity import Permission, Role, User
+from app.models.partner import Country, PartnerTier, PartnerType
 from app.models.seed import SeedRecord
 
 SeedFunction = Callable[[AsyncSession], Awaitable[None]]
@@ -26,10 +27,54 @@ PERMISSION_DEFINITIONS = {
     "platform.manage": "Manage platform configuration and identity",
     "partners.manage": "Create, review, and manage partners",
     "partners.view": "View authorized partner data",
+    "partners.approve": "Approve or reject partner registrations",
+    "partner_profile.manage": "Manage an authorized partner profile",
+    "partner_users.manage": "Manage users for an authorized partner",
     "sales.manage": "Manage deals, quotes, and orders",
     "sales.view": "View authorized sales data",
     "documents.manage": "Publish and administer documents",
     "documents.view": "View authorized documents",
+}
+
+PARTNER_TYPE_DEFINITIONS = {
+    "RESELLER": ("Reseller", "Resells TCG products to customers"),
+    "REFERRAL": ("Referral", "Introduces qualified customer opportunities"),
+    "SYSTEM_INTEGRATOR": ("System Integrator", "Implements and integrates TCG products"),
+}
+
+PARTNER_TIER_DEFINITIONS = {
+    "SILVER": ("Silver", 1),
+    "GOLD": ("Gold", 2),
+    "PLATINUM": ("Platinum", 3),
+}
+
+COUNTRY_DEFINITIONS = {
+    "AU": "Australia",
+    "BR": "Brazil",
+    "CA": "Canada",
+    "CN": "China",
+    "DE": "Germany",
+    "ES": "Spain",
+    "FR": "France",
+    "GB": "United Kingdom",
+    "ID": "Indonesia",
+    "IN": "India",
+    "IT": "Italy",
+    "JP": "Japan",
+    "KE": "Kenya",
+    "KR": "South Korea",
+    "MX": "Mexico",
+    "MY": "Malaysia",
+    "NG": "Nigeria",
+    "NL": "Netherlands",
+    "NZ": "New Zealand",
+    "PH": "Philippines",
+    "SA": "Saudi Arabia",
+    "SG": "Singapore",
+    "TH": "Thailand",
+    "US": "United States",
+    "VN": "Vietnam",
+    "ZA": "South Africa",
 }
 
 
@@ -87,7 +132,74 @@ async def seed_identity(session: AsyncSession) -> None:
         admin.roles.append(roles["TCG_ADMIN"])
 
 
-SEEDS: tuple[tuple[str, SeedFunction], ...] = (("foundation-identity-v1", seed_identity),)
+async def seed_partner_master_data(session: AsyncSession) -> None:
+    permissions: dict[str, Permission] = {}
+    for code, description in PERMISSION_DEFINITIONS.items():
+        permission = await session.scalar(select(Permission).where(Permission.code == code))
+        if permission is None:
+            permission = Permission(code=code, description=description)
+            session.add(permission)
+        else:
+            permission.description = description
+        permissions[code] = permission
+    await session.flush()
+
+    roles: dict[str, Role] = {}
+    for code, name in ROLE_DEFINITIONS.items():
+        role = await session.scalar(
+            select(Role).where(Role.code == code).options(selectinload(Role.permissions))
+        )
+        if role is None:
+            role = Role(code=code, name=name, permissions=[])
+            session.add(role)
+        roles[code] = role
+    await session.flush()
+    roles["TCG_ADMIN"].permissions = list(permissions.values())
+    roles["TCG_SALES"].permissions = [
+        permissions["partners.view"],
+        permissions["sales.manage"],
+        permissions["documents.view"],
+    ]
+    roles["PARTNER_ADMIN"].permissions = [
+        permissions["partners.view"],
+        permissions["partner_profile.manage"],
+        permissions["partner_users.manage"],
+        permissions["sales.manage"],
+        permissions["documents.view"],
+    ]
+    for code in ("PARTNER_SALES", "PARTNER_PRESALES", "PARTNER_DELIVERY"):
+        roles[code].permissions = [
+            permissions["partners.view"],
+            permissions["sales.view"],
+            permissions["documents.view"],
+        ]
+
+    for code, (name, description) in PARTNER_TYPE_DEFINITIONS.items():
+        value = await session.scalar(select(PartnerType).where(PartnerType.code == code))
+        if value is None:
+            session.add(PartnerType(code=code, name=name, description=description))
+        else:
+            value.name, value.description, value.is_active = name, description, True
+
+    for code, (name, rank) in PARTNER_TIER_DEFINITIONS.items():
+        value = await session.scalar(select(PartnerTier).where(PartnerTier.code == code))
+        if value is None:
+            session.add(PartnerTier(code=code, name=name, rank=rank))
+        else:
+            value.name, value.rank, value.is_active = name, rank, True
+
+    for code, name in COUNTRY_DEFINITIONS.items():
+        value = await session.scalar(select(Country).where(Country.code == code))
+        if value is None:
+            session.add(Country(code=code, name=name))
+        else:
+            value.name, value.is_active = name, True
+
+
+SEEDS: tuple[tuple[str, SeedFunction], ...] = (
+    ("foundation-identity-v1", seed_identity),
+    ("phase-1a-partner-master-data-v1", seed_partner_master_data),
+)
 
 
 async def run_seeds() -> None:

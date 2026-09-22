@@ -1,0 +1,34 @@
+import { NavLink, Outlet } from "react-router-dom";
+
+import { useAuth } from "../features/auth/AuthContext";
+
+export function AppLayout() {
+  const { user, logout } = useAuth();
+  const isTcg = user?.roles.some((role) => role.startsWith("TCG_"));
+
+  return (
+    <div className="workspace">
+      <aside className="sidebar">
+        <NavLink className="brand brand--sidebar" to="/dashboard">
+          <span className="brand-mark" aria-hidden="true">T</span>
+          <span><strong>TCG Digital</strong><small>Partner Portal</small></span>
+        </NavLink>
+        <nav aria-label="Primary navigation">
+          <NavLink to="/dashboard">Overview</NavLink>
+          <NavLink to={isTcg ? "/partners" : `/partners/${user?.partner_id ?? ""}`}>
+            {isTcg ? "Partners" : "Company profile"}
+          </NavLink>
+          {user?.partner_id && <NavLink to={`/partners/${user.partner_id}/users`}>Users</NavLink>}
+          <NavLink to="/system">System status</NavLink>
+        </nav>
+        <div className="sidebar-user">
+          <span className="avatar">{user?.full_name.charAt(0).toUpperCase()}</span>
+          <span><strong>{user?.full_name}</strong><small>{user?.roles[0]?.replaceAll("_", " ")}</small></span>
+          <button className="button-quiet" type="button" onClick={logout}>Sign out</button>
+        </div>
+      </aside>
+      <main className="workspace-main"><Outlet /></main>
+    </div>
+  );
+}
+

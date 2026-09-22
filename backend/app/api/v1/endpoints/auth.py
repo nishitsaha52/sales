@@ -22,6 +22,7 @@ def user_response(user: User) -> UserRead:
         full_name=user.full_name,
         is_active=user.is_active,
         is_superuser=user.is_superuser,
+        partner_id=user.partner_id,
         roles=sorted(role.code for role in user.roles),
         permissions=sorted(
             {permission.code for role in user.roles for permission in role.permissions}
