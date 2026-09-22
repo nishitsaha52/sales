@@ -21,7 +21,7 @@ export function DashboardPage() {
           {isTcgAdmin ? "Manage partners" : "View company"}
         </Link>
       </section>
+      <div className="quick-links"><Link to="/pricing">View pricing →</Link>{!user?.partner_id && <Link to="/products">Manage product catalog →</Link>}</div>
     </div>
   );
 }
-

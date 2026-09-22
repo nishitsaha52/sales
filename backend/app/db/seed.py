@@ -1,5 +1,7 @@
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,14 @@ from app.core.security import hash_password
 from app.db.session import SessionLocal, close_db
 from app.models.identity import Permission, Role, User
 from app.models.partner import Country, PartnerTier, PartnerType
+from app.models.pricing import (
+    AdjustmentType,
+    PartnerCommercialTerm,
+    Product,
+    Sku,
+    SkuCategory,
+    TierPricingAdjustment,
+)
 from app.models.seed import SeedRecord
 
 SeedFunction = Callable[[AsyncSession], Awaitable[None]]
@@ -34,6 +44,10 @@ PERMISSION_DEFINITIONS = {
     "sales.view": "View authorized sales data",
     "documents.manage": "Publish and administer documents",
     "documents.view": "View authorized documents",
+    "catalog.view": "View the product and SKU catalog",
+    "catalog.manage": "Create and manage products and SKUs",
+    "pricing.view": "View authorized resolved pricing",
+    "pricing.manage": "Configure price masters, rules, and overrides",
 }
 
 PARTNER_TYPE_DEFINITIONS = {
@@ -103,6 +117,8 @@ async def seed_identity(session: AsyncSession) -> None:
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [
         permissions["partners.view"],
+        permissions["catalog.view"],
+        permissions["pricing.view"],
         permissions["sales.manage"],
         permissions["documents.view"],
     ]
@@ -111,7 +127,11 @@ async def seed_identity(session: AsyncSession) -> None:
         permissions["sales.manage"],
         permissions["documents.view"],
     ]
-    for code in ("PARTNER_SALES", "PARTNER_PRESALES", "PARTNER_DELIVERY"):
+    roles["PARTNER_SALES"].permissions = [
+        permissions["sales.manage"],
+        permissions["documents.view"],
+    ]
+    for code in ("PARTNER_PRESALES", "PARTNER_DELIVERY"):
         roles[code].permissions = [permissions["sales.view"], permissions["documents.view"]]
 
     email = settings.SEED_ADMIN_EMAIL.lower()
@@ -157,6 +177,8 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
     roles["TCG_ADMIN"].permissions = list(permissions.values())
     roles["TCG_SALES"].permissions = [
         permissions["partners.view"],
+        permissions["catalog.view"],
+        permissions["pricing.view"],
         permissions["sales.manage"],
         permissions["documents.view"],
     ]
@@ -164,12 +186,23 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
         permissions["partners.view"],
         permissions["partner_profile.manage"],
         permissions["partner_users.manage"],
+        permissions["catalog.view"],
+        permissions["pricing.view"],
         permissions["sales.manage"],
         permissions["documents.view"],
     ]
-    for code in ("PARTNER_SALES", "PARTNER_PRESALES", "PARTNER_DELIVERY"):
+    roles["PARTNER_SALES"].permissions = [
+        permissions["partners.view"],
+        permissions["catalog.view"],
+        permissions["pricing.view"],
+        permissions["sales.manage"],
+        permissions["documents.view"],
+    ]
+    for code in ("PARTNER_PRESALES", "PARTNER_DELIVERY"):
         roles[code].permissions = [
             permissions["partners.view"],
+            permissions["catalog.view"],
+            permissions["pricing.view"],
             permissions["sales.view"],
             permissions["documents.view"],
         ]
@@ -196,9 +229,109 @@ async def seed_partner_master_data(session: AsyncSession) -> None:
             value.name, value.is_active = name, True
 
 
+async def seed_product_pricing(session: AsyncSession) -> None:
+    await seed_partner_master_data(session)
+    product_definitions = {
+        "MCUBE": ("mCube", "TCG Digital mCube product family"),
+        "LVA": ("LVA", "TCG Digital LVA product family"),
+    }
+    sku_definitions = {
+        "MCUBE": (
+            ("MCUBE-LICENSE", "mCube License", SkuCategory.LICENSE, "license"),
+            (
+                "MCUBE-IMPLEMENTATION",
+                "mCube Implementation",
+                SkuCategory.IMPLEMENTATION,
+                "project",
+            ),
+        ),
+        "LVA": (
+            ("LVA-LICENSE", "LVA License", SkuCategory.LICENSE, "license"),
+            (
+                "LVA-IMPLEMENTATION",
+                "LVA Implementation",
+                SkuCategory.IMPLEMENTATION,
+                "project",
+            ),
+        ),
+    }
+    for code, (name, description) in product_definitions.items():
+        product = await session.scalar(
+            select(Product).where(Product.code == code).options(selectinload(Product.skus))
+        )
+        if product is None:
+            product = Product(code=code, name=name, description=description, skus=[])
+            session.add(product)
+            await session.flush()
+        else:
+            product.name, product.description, product.is_active = name, description, True
+        existing_skus = {sku.code: sku for sku in product.skus}
+        for sku_code, sku_name, category, unit in sku_definitions[code]:
+            sku = existing_skus.get(sku_code)
+            if sku is None:
+                product.skus.append(Sku(code=sku_code, name=sku_name, category=category, unit=unit))
+            else:
+                sku.name, sku.category, sku.unit, sku.is_active = (
+                    sku_name,
+                    category,
+                    unit,
+                    True,
+                )
+
+    effective_from = date(2026, 1, 1)
+    rule_definitions = {
+        "RESELLER": (AdjustmentType.PERCENT_DISCOUNT, Decimal("20")),
+        "REFERRAL": (AdjustmentType.REFERRAL_COMMISSION, Decimal("3")),
+        "SYSTEM_INTEGRATOR": (AdjustmentType.PERCENT_MARKUP, Decimal("15")),
+    }
+    for type_code, (adjustment_type, percentage) in rule_definitions.items():
+        partner_type = await session.scalar(
+            select(PartnerType).where(PartnerType.code == type_code)
+        )
+        if partner_type is None:
+            continue
+        term = await session.scalar(
+            select(PartnerCommercialTerm).where(
+                PartnerCommercialTerm.partner_type_id == partner_type.id,
+                PartnerCommercialTerm.effective_from == effective_from,
+            )
+        )
+        if term is None:
+            session.add(
+                PartnerCommercialTerm(
+                    partner_type_id=partner_type.id,
+                    adjustment_type=adjustment_type,
+                    percentage=percentage,
+                    effective_from=effective_from,
+                )
+            )
+
+    tier_definitions = {"SILVER": Decimal("0"), "GOLD": Decimal("5"), "PLATINUM": Decimal("10")}
+    for tier_code, percentage in tier_definitions.items():
+        tier = await session.scalar(select(PartnerTier).where(PartnerTier.code == tier_code))
+        if tier is None:
+            continue
+        adjustment = await session.scalar(
+            select(TierPricingAdjustment).where(
+                TierPricingAdjustment.tier_id == tier.id,
+                TierPricingAdjustment.effective_from == effective_from,
+            )
+        )
+        if adjustment is None:
+            session.add(
+                TierPricingAdjustment(
+                    tier_id=tier.id,
+                    discount_percentage=percentage,
+                    effective_from=effective_from,
+                )
+            )
+
+
 SEEDS: tuple[tuple[str, SeedFunction], ...] = (
     ("foundation-identity-v1", seed_identity),
     ("phase-1a-partner-master-data-v1", seed_partner_master_data),
+    ("phase-1b-product-pricing-v1", seed_product_pricing),
+    ("phase-1-remaining-permissions-v1", seed_partner_master_data),
 )
 
 

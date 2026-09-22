@@ -19,6 +19,11 @@ export function AppLayout() {
             {isTcg ? "Partners" : "Company profile"}
           </NavLink>
           {user?.partner_id && <NavLink to={`/partners/${user.partner_id}/users`}>Users</NavLink>}
+          {isTcg && <NavLink to="/products">Products & SKUs</NavLink>}
+          <NavLink to="/pricing">Pricing</NavLink>
+          <NavLink to="/documents">Documents</NavLink>
+          <NavLink to="/deals">Deals & pipeline</NavLink>
+          <NavLink to="/commercial">Quote to order</NavLink>
           <NavLink to="/system">System status</NavLink>
         </nav>
         <div className="sidebar-user">
@@ -31,4 +36,3 @@ export function AppLayout() {
     </div>
   );
 }
-

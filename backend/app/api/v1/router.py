@@ -1,8 +1,25 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, health, partners
+from app.api.v1.endpoints import (
+    auth,
+    deals,
+    documents,
+    health,
+    operations,
+    partners,
+    pricing,
+    products,
+    quotes,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(partners.router, prefix="/partners", tags=["partners"])
+api_router.include_router(products.router, prefix="/products", tags=["products"])
+api_router.include_router(pricing.router, prefix="/pricing", tags=["pricing"])
+api_router.include_router(documents.router, prefix="/documents", tags=["documents"])
+api_router.include_router(deals.router, prefix="/deals", tags=["deals"])
+api_router.include_router(quotes.router, prefix="/quotes", tags=["quotes"])
+api_router.include_router(operations.maf_router, prefix="/maf", tags=["maf"])
+api_router.include_router(operations.orders_router, prefix="/orders", tags=["orders"])

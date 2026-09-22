@@ -77,6 +77,123 @@ export interface PartnerUser {
   created_at: string;
 }
 
+export interface Sku {
+  id: string;
+  product_id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  category: "LICENSE" | "IMPLEMENTATION" | "SERVICE" | "OTHER";
+  unit: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Product {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  skus: Sku[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductPrice {
+  id: string;
+  sku_id: string;
+  amount: string;
+  currency: "USD";
+  effective_from: string;
+  effective_until: string | null;
+  is_active: boolean;
+}
+
+export type AdjustmentType = "NONE" | "PERCENT_DISCOUNT" | "PERCENT_MARKUP" | "REFERRAL_COMMISSION";
+export type OverrideType = "FIXED_PRICE" | "PERCENT_DISCOUNT" | "PERCENT_MARKUP";
+
+export interface CommercialTerm {
+  id: string;
+  partner_type_id: string;
+  partner_type_code: string;
+  partner_type_name: string;
+  adjustment_type: AdjustmentType;
+  percentage: string;
+  effective_from: string;
+  effective_until: string | null;
+  is_active: boolean;
+}
+
+export interface TierAdjustment {
+  id: string;
+  tier_id: string;
+  tier_code: string;
+  tier_name: string;
+  discount_percentage: string;
+  effective_from: string;
+  effective_until: string | null;
+  is_active: boolean;
+}
+
+export interface PartnerOverride {
+  id: string;
+  partner_id: string;
+  partner_name: string;
+  sku_id: string;
+  sku_code: string;
+  override_type: OverrideType;
+  value: string;
+  currency: "USD";
+  effective_from: string;
+  effective_until: string | null;
+  is_active: boolean;
+}
+
+export interface PricingConfiguration {
+  commercial_terms: CommercialTerm[];
+  tier_adjustments: TierAdjustment[];
+  partner_overrides: PartnerOverride[];
+}
+
+export interface PriceBreakdown {
+  list_price: string;
+  partner_type_adjustment: AdjustmentType | null;
+  partner_type_percentage: string;
+  after_partner_type: string;
+  tier_discount_percentage: string;
+  after_tier: string;
+  override_type: OverrideType | null;
+  override_value: string | null;
+}
+
+export interface ResolvedPrice {
+  product_id: string;
+  product_code: string;
+  product_name: string;
+  sku_id: string;
+  sku_code: string;
+  sku_name: string;
+  sku_description: string | null;
+  unit: string;
+  currency: "USD";
+  final_price: string;
+  effective_from: string;
+  effective_until: string | null;
+  commercial_model: AdjustmentType | null;
+  commission_percentage: string | null;
+  breakdown: PriceBreakdown | null;
+}
+
+export interface PartnerPricing {
+  partner_id: string;
+  partner_name: string;
+  as_of: string;
+  currency: "USD";
+  items: ResolvedPrice[];
+}
+
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 export class ApiError extends Error {
@@ -91,11 +208,12 @@ export class ApiError extends Error {
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("partner_portal_token");
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
@@ -110,6 +228,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
       body?.error?.request_id,
     );
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -169,6 +288,103 @@ export const updatePartnerUser = (partnerId: string, userId: string, body: unkno
     method: "PATCH",
     body: JSON.stringify(body),
   });
+export const getProducts = () => apiRequest<Product[]>("/products");
+export const createProduct = (body: unknown) =>
+  apiRequest<Product>("/products", { method: "POST", body: JSON.stringify(body) });
+export const updateProduct = (id: string, body: unknown) =>
+  apiRequest<Product>(`/products/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+export const createSku = (productId: string, body: unknown) =>
+  apiRequest<Sku>(`/products/${productId}/skus`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const updateSku = (id: string, body: unknown) =>
+  apiRequest<Sku>(`/products/skus/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+export const getProductPrices = (skuId: string) =>
+  apiRequest<ProductPrice[]>(`/products/skus/${skuId}/prices`);
+export const setProductPrice = (skuId: string, body: unknown) =>
+  apiRequest<ProductPrice>(`/products/skus/${skuId}/prices`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const getResolvedPricing = (partnerId?: string, asOf?: string) => {
+  const query = new URLSearchParams();
+  if (partnerId) query.set("partner_id", partnerId);
+  if (asOf) query.set("as_of", asOf);
+  return apiRequest<PartnerPricing>(`/pricing/resolved?${query.toString()}`);
+};
+export const getPricingConfiguration = (partnerId?: string) =>
+  apiRequest<PricingConfiguration>(
+    `/pricing/configuration${partnerId ? `?partner_id=${partnerId}` : ""}`,
+  );
+export const setPartnerTypeRule = (partnerTypeId: string, body: unknown) =>
+  apiRequest<CommercialTerm>(`/pricing/partner-type-rules/${partnerTypeId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+export const setTierAdjustment = (tierId: string, body: unknown) =>
+  apiRequest<TierAdjustment>(`/pricing/tier-adjustments/${tierId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+export const setPartnerOverride = (body: unknown) =>
+  apiRequest<PartnerOverride>("/pricing/partner-overrides", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const deactivatePartnerOverride = (id: string) =>
+  apiRequest<void>(`/pricing/partner-overrides/${id}`, { method: "DELETE" });
+
+export interface DocumentVersion {
+  id: string; version_number: number; file_name: string; content_type: string;
+  size_bytes: number; checksum_sha256: string; change_note: string | null; created_at: string;
+}
+export interface PortalDocument {
+  id: string; title: string; description: string | null; category: string; visibility: string;
+  product_id: string | null; partner_type_id: string | null; partner_tier_id: string | null;
+  partner_id: string | null; is_active: boolean; versions: DocumentVersion[];
+  created_at: string; updated_at: string;
+}
+export interface Customer { id: string; name: string; country_code: string; created_at: string; }
+export interface StageHistory { id: string; from_stage: string | null; to_stage: string; note: string | null; changed_at: string; }
+export interface Deal {
+  id: string; reference: string; partner_id: string; customer_id: string; product_id: string;
+  name: string; description: string | null; estimated_value: string; currency: string;
+  expected_close_date: string | null; approval_status: string; stage: string;
+  review_reason: string | null; protection_expires_at: string | null;
+  actual_contract_value: string | null; actual_close_date: string | null; lost_reason: string | null;
+  customer: Customer; stage_history: StageHistory[]; created_at: string; updated_at: string;
+}
+export interface QuoteItem { id: string; sku_id: string; sku_code: string; sku_name: string; quantity: string; unit_price: string; discount_percentage: string; line_total: string; }
+export interface Quote { id: string; reference: string; opportunity_id: string; partner_id: string; status: string; commercial_model: string; valid_until: string | null; currency: string; subtotal: string; discount_total: string; total: string; current_revision: number; notes: string | null; items: QuoteItem[]; created_at: string; updated_at: string; }
+export interface Maf { id: string; reference: string; opportunity_id: string; partner_id: string; status: string; tender_reference: string; tender_authority: string; tender_due_date: string; tender_value: string | null; details: string | null; review_reason: string | null; expires_at: string | null; created_at: string; updated_at: string; }
+export interface OrderHistory { id: string; from_status: string | null; to_status: string; note: string | null; changed_at: string; }
+export interface Order { id: string; reference: string; quote_id: string; partner_id: string; status: string; billing_name: string; billing_address: string; billing_email: string; currency: string; total: string; review_reason: string | null; confirmed_at: string | null; status_history: OrderHistory[]; created_at: string; updated_at: string; }
+
+export const getDocuments = (query = "") => apiRequest<PortalDocument[]>(`/documents${query ? `?${query}` : ""}`);
+export const uploadDocument = (body: FormData) => apiRequest<PortalDocument>("/documents", { method: "POST", body });
+export const addDocumentVersion = (id: string, body: FormData) => apiRequest<PortalDocument>(`/documents/${id}/versions`, { method: "POST", body });
+export const downloadDocument = (id: string, version?: number) => apiRequest<{ url: string }>(`/documents/${id}/download${version ? `?version=${version}` : ""}`);
+export const getCustomers = () => apiRequest<Customer[]>("/deals/customers");
+export const getDeals = () => apiRequest<Deal[]>("/deals");
+export const createDeal = (body: unknown) => apiRequest<Deal>("/deals", { method: "POST", body: JSON.stringify(body) });
+export const submitDeal = (id: string) => apiRequest<Deal>(`/deals/${id}/submit`, { method: "POST" });
+export const approveDeal = (id: string) => apiRequest<Deal>(`/deals/${id}/approve`, { method: "POST" });
+export const rejectDeal = (id: string, reason: string) => apiRequest<Deal>(`/deals/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
+export const changeDealStage = (id: string, body: unknown) => apiRequest<Deal>(`/deals/${id}/stage`, { method: "POST", body: JSON.stringify(body) });
+export const getQuotes = () => apiRequest<Quote[]>("/quotes");
+export const createQuote = (body: unknown) => apiRequest<Quote>("/quotes", { method: "POST", body: JSON.stringify(body) });
+export const addQuoteItem = (id: string, body: unknown) => apiRequest<Quote>(`/quotes/${id}/items`, { method: "POST", body: JSON.stringify(body) });
+export const changeQuoteStatus = (id: string, status: string, reason?: string) => apiRequest<Quote>(`/quotes/${id}/status`, { method: "POST", body: JSON.stringify({ status, reason }) });
+export const reviseQuote = (id: string) => apiRequest<Quote>(`/quotes/${id}/revise`, { method: "POST" });
+export const getMafs = () => apiRequest<Maf[]>("/maf");
+export const createMaf = (body: unknown) => apiRequest<Maf>("/maf", { method: "POST", body: JSON.stringify(body) });
+export const changeMafStatus = (id: string, status: string, reason?: string) => apiRequest<Maf>(`/maf/${id}/status`, { method: "POST", body: JSON.stringify({ status, reason }) });
+export const uploadMafAttachment = (id: string, body: FormData, kind = "SUPPORTING") => apiRequest(`/maf/${id}/attachments?kind=${kind}`, { method: "POST", body });
+export const getOrders = () => apiRequest<Order[]>("/orders");
+export const createOrder = (body: unknown) => apiRequest<Order>("/orders", { method: "POST", body: JSON.stringify(body) });
+export const changeOrderStatus = (id: string, status: string, reason?: string) => apiRequest<Order>(`/orders/${id}/status`, { method: "POST", body: JSON.stringify({ status, reason }) });
+export const uploadOrderAttachment = (id: string, body: FormData) => apiRequest(`/orders/${id}/attachments`, { method: "POST", body });
 
 export function getReadiness(): Promise<ReadyResponse> {
   return fetch(`${API_BASE_URL}/api/v1/health/ready`, {

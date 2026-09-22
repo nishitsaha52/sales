@@ -1,4 +1,6 @@
+from datetime import timedelta
 from functools import lru_cache
+from io import BytesIO
 
 from minio import Minio
 
@@ -28,3 +30,22 @@ def storage_is_ready() -> tuple[bool, str | None]:
         return True, None
     except Exception as exc:
         return False, type(exc).__name__
+
+
+def put_private_object(object_key: str, data: bytes, content_type: str) -> None:
+    get_minio_client().put_object(
+        settings.MINIO_BUCKET,
+        object_key,
+        BytesIO(data),
+        length=len(data),
+        content_type=content_type,
+    )
+
+
+def presigned_download_url(object_key: str, file_name: str) -> str:
+    return get_minio_client().presigned_get_object(
+        settings.MINIO_BUCKET,
+        object_key,
+        expires=timedelta(minutes=10),
+        response_headers={"response-content-disposition": f'attachment; filename="{file_name}"'},
+    )

@@ -18,6 +18,15 @@ Phase 1A adds partner access and management:
 - Partner profiles and partner-user administration
 - Backend-enforced TCG/partner role checks and partner data isolation
 
+Phase 1B adds product and pricing management:
+
+- Extensible product and SKU master data
+- Effective-dated USD list prices
+- Configurable partner-type commercial rules and tier benefits
+- Effective-dated partner/SKU overrides
+- Deterministic partner price resolution with an admin-only calculation breakdown
+- Restricted partner pricing that never exposes another partner's terms
+
 ## Prerequisites
 
 - Python 3.12 or newer
@@ -121,4 +130,8 @@ python -m app.db.seed
 Phase 1A routes are documented interactively at `http://localhost:8000/docs`. The public
 registration entry point is `http://localhost:5173/register`; authenticated users are routed to
 their role-aware workspace after login.
+
+The Phase 1B seed creates mCube and LVA with the suggested development SKUs and configurable
+placeholder commercial rules. It deliberately does not invent list prices; TCG Admin sets those
+from **Products & SKUs** before resolved partner pricing appears.
 
