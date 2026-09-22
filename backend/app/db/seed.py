@@ -48,7 +48,7 @@ async def seed_identity(session: AsyncSession) -> None:
         existing = await session.scalar(
             select(Role).where(Role.code == code).options(selectinload(Role.permissions))
         )
-        role = existing or Role(code=code, name=name)
+        role = existing or Role(code=code, name=name, permissions=[])
         role.name = name
         if existing is None:
             session.add(role)
@@ -80,6 +80,7 @@ async def seed_identity(session: AsyncSession) -> None:
             hashed_password=hash_password(settings.SEED_ADMIN_PASSWORD),
             is_active=True,
             is_superuser=True,
+            roles=[],
         )
         session.add(admin)
     if roles["TCG_ADMIN"] not in admin.roles:
