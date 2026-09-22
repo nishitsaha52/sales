@@ -1,0 +1,1 @@
+"""TCG Partner Portal backend."""
