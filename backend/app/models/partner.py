@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Column, ForeignKey, String, Table, Text
+from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, String, Table, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -79,7 +79,7 @@ class Partner(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         String(30), default=PartnerStatus.PENDING_APPROVAL, index=True
     )
     rejection_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     partner_type_id: Mapped[UUID] = mapped_column(
         ForeignKey("partner_types.id", ondelete="RESTRICT"), index=True

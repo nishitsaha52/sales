@@ -2,9 +2,11 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import DateTime
 
 from app.domain.access import can_manage_partner, can_view_partner, is_tcg_admin
 from app.models.identity import Role, User
+from app.models.partner import Partner
 from app.schemas.partner import PartnerRegistrationRequest, PartnerUserCreate
 
 
@@ -84,3 +86,10 @@ def test_partner_user_roles_are_normalized_and_deduplicated() -> None:
     )
 
     assert user.role_codes == ["PARTNER_SALES"]
+
+
+def test_partner_approval_timestamp_accepts_timezone_aware_values() -> None:
+    approved_at_type = Partner.__table__.c.approved_at.type
+
+    assert isinstance(approved_at_type, DateTime)
+    assert approved_at_type.timezone is True
